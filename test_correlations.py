@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
-from sdv.single_table import GaussianCopulaSynthesizer
-from sdv.metadata import Metadata
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# This script tests the correlations in the generated data
+# Run this before generating the full synthetic dataset
 
 # Load data
 print("Loading data...")
@@ -19,13 +22,6 @@ data['reviews per month'] = data['reviews per month'].fillna(0)
 data['review rate number'] = data['review rate number'].fillna(0)
 data['Construction year'] = data['Construction year'].fillna(data['Construction year'].median())
 data['calculated host listings count'] = data['calculated host listings count'].fillna(1)
-
-# Backup original categorical columns
-original_neigh = data['neighbourhood group'].copy()
-original_bookable = data['instant_bookable'].copy()
-original_room_type = data['room type'].copy()
-original_cancellation = data['cancellation_policy'].copy()
-original_host_verified = data['host_identity_verified'].copy()
 
 # Define mappings for categorical variables
 neigh_price_map = {
@@ -153,30 +149,38 @@ numeric_cols = data.select_dtypes(include=[np.number]).columns
 correlations = data[numeric_cols].corr()['price'].sort_values(ascending=False)
 print(correlations)
 
-# Restore original categorical columns
-data['neighbourhood group'] = original_neigh
-data['instant_bookable'] = original_bookable
-data['room type'] = original_room_type
-data['cancellation_policy'] = original_cancellation
-data['host_identity_verified'] = original_host_verified
+# Print summary of correlation strengths
+strong_corr = correlations[(correlations > 0.4) & (correlations < 1.0)]
+medium_corr = correlations[(correlations > 0.2) & (correlations <= 0.4)]
+weak_corr = correlations[(correlations > 0.1) & (correlations <= 0.2)]
 
-# Drop intermediate columns used for calculation
-columns_to_drop = [
-    'neigh_encoded', 'room_type_encoded', 'bookable_encoded', 
-    'cancellation_encoded', 'host_verified_encoded',
-    'location_score', 'popularity_score', 'premium_factor',
-    'demand_factor', 'experience_factor', 'stay_impact',
-    'service_quality'
-]
-data.drop(columns_to_drop, axis=1, inplace=True)
+print(f"\nStrong correlations (>0.4): {len(strong_corr)}")
+print(f"Medium correlations (0.2-0.4): {len(medium_corr)}")
+print(f"Weak correlations (0.1-0.2): {len(weak_corr)}")
 
-print("Generating synthetic data...")
-# Generate synthetic data
-metadata = Metadata.detect_from_dataframe(data)
-synthesizer = GaussianCopulaSynthesizer(metadata)
-synthesizer.fit(data)
-synthetic_data = synthesizer.sample(num_rows=280000)
+# Create correlation heatmap
+plt.figure(figsize=(12, 10))
+corr_matrix = data[numeric_cols].corr()
+mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+sns.heatmap(corr_matrix, mask=mask, annot=False, cmap='coolwarm', 
+            fmt='.2f', square=True, linewidths=.5)
+plt.title('Correlation Matrix')
+plt.tight_layout()
+plt.savefig('correlation_heatmap.png')
+print("Correlation heatmap saved as 'correlation_heatmap.png'")
 
-print("Saving synthetic data...")
-synthetic_data.to_csv('data/synthetic_airbnb_data.csv', index=False)
-print("Done!")
+# Create scatter plots for top correlations
+top_correlated = correlations[(correlations < 0.95) & (correlations > 0.2)].index.tolist()[:5]
+if len(top_correlated) > 0:
+    plt.figure(figsize=(15, 10))
+    for i, feature in enumerate(top_correlated, 1):
+        plt.subplot(2, 3, i)
+        plt.scatter(data[feature], data['price'], alpha=0.5)
+        plt.title(f'Price vs {feature} (corr: {correlations[feature]:.2f})')
+        plt.xlabel(feature)
+        plt.ylabel('Price')
+    plt.tight_layout()
+    plt.savefig('top_correlations.png')
+    print("Top correlation scatter plots saved as 'top_correlations.png'")
+
+print("\nTest complete. If correlations look good, run data_generation.py to create the full synthetic dataset.")
